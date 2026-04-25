@@ -1,0 +1,21 @@
+package middlewares
+
+import (
+	"net/http"
+
+	"github.com/go-chi/cors"
+)
+
+func CorsMiddleware() func(http.Handler) http.Handler {
+	corsOptions := cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}
+	
+	corsMiddleware := cors.New(corsOptions)
+	return corsMiddleware.Handler
+}
