@@ -1,0 +1,35 @@
+# Air - Hot Reload Config for Go
+# Docs: https://github.com/air-verse/air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Command to build the app
+  cmd = "go build -o ./tmp/main ./cmd/main/main.go"
+  # Binary to run after build
+  bin = "./tmp/main"
+  # Watch these file extensions
+  include_ext = ["go", "env"]
+  # Ignore these folders
+  exclude_dir = ["tmp", "vendor", "testdata", ".git"]
+  # Kill old process before restarting
+  send_interrupt = true
+  kill_delay = "500ms"
+  # Show build log
+  log = "build-errors.log"
+  # Delay before rebuild (ms) — avoid rebuild spam on rapid saves
+  delay = 1000
+
+[log]
+  time = true
+  main_only = false
+
+[color]
+  main     = "magenta"
+  watcher  = "cyan"
+  build    = "yellow"
+  runner   = "green"
+
+[misc]
+  clean_on_exit = true
