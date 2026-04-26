@@ -13,7 +13,7 @@ type UserService struct {
 	jwtMaker jwt.JWTMakerInterface
 }
 
-func NewUserService(userRepo entities.UserRepositoryInterface, jwtMaker jwt.JWTMakerInterface) entities.UserServiceInterface {
+func NewUserService(userRepo entities.UserRepositoryInterface, jwtMaker jwt.JWTMakerInterface) *UserService {
 	return &UserService{
 		userRepo: userRepo,
 		jwtMaker: jwtMaker,
