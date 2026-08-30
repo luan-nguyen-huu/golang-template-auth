@@ -4,33 +4,45 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"github.com/luan-nguyen-huu/Adam/internal/domain"
 )
 
+// User is the GORM database schema entity for persistence.
 type User struct {
-	ID               uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	Email            string         `gorm:"uniqueIndex;not null" json:"email"`
-	PasswordHash     string         `gorm:"not null" json:"-"`
-	Name             string         `json:"name"`
-	CreatedAt        time.Time      `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt        time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
-	IsDeleted        bool           `gorm:"default:false" json:"is_deleted"`
-	IsVerified       bool           `gorm:"default:false" json:"is_verified"`
-	Active           int            `gorm:"default:0" json:"active"`
-	DurationRegister time.Time      `gorm:"autoUpdateTime;not null" json:"duration_register"`
+	ID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	Email        string    `gorm:"uniqueIndex;not null" json:"email"`
+	PasswordHash string    `gorm:"not null" json:"-"`
+	Name         string    `json:"name"`
+	CreatedAt    time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt    time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
-
-type UserRepositoryInterface interface {
-	CreateUser(user *User) error
-	GetUserByEmail(email string) (*User, error)
-	GetUserByID(userID uuid.UUID) (*User, error)
+// ToDomain converts the persistence User entity to a pure domain.User model.
+func (u *User) ToDomain() *domain.User {
+	if u == nil {
+		return nil
+	}
+	return &domain.User{
+		ID:        u.ID,
+		Email:     u.Email,
+		Password:  u.PasswordHash,
+		Name:      u.Name,
+		CreatedAt: u.CreatedAt,
+		UpdatedAt: u.UpdatedAt,
+	}
 }
 
-type UserServiceInterface interface {
-	RegisterUser(username string, password string, email string) (string, string, error)
-	LoginUser(email string, password string) (string, string, error)
-	GetMe(userID uuid.UUID) (*User, error)
-	RefreshToken(userID uuid.UUID) (string, string, error)
+// FromDomainUser creates a persistence User entity from a pure domain.User model.
+func FromDomainUser(u *domain.User) *User {
+	if u == nil {
+		return nil
+	}
+	return &User{
+		ID:           u.ID,
+		Email:        u.Email,
+		PasswordHash: u.Password,
+		Name:         u.Name,
+		CreatedAt:    u.CreatedAt,
+		UpdatedAt:    u.UpdatedAt,
+	}
 }
