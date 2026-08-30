@@ -2,99 +2,146 @@ package handlers
 
 import (
 	"encoding/json"
-	"github.com/luan-nguyen-huu/Adam/internal/entities"
+	"errors"
+	"net/http"
+
+	"github.com/luan-nguyen-huu/Adam/configs"
+	"github.com/luan-nguyen-huu/Adam/internal/domain"
+	user_dto "github.com/luan-nguyen-huu/Adam/internal/handlers/dto/user"
 	"github.com/luan-nguyen-huu/Adam/internal/middlewares"
-	user_resp "github.com/luan-nguyen-huu/Adam/internal/handlers/dto/user"
 	"github.com/luan-nguyen-huu/Adam/internal/utils"
 	"github.com/luan-nguyen-huu/Adam/internal/utils/jwt"
-	"github.com/luan-nguyen-huu/Adam/internal/exceptions"
-	exceptions_auth "github.com/luan-nguyen-huu/Adam/internal/exceptions/auth"
-	"net/http"
 )
 
 type UserHandler struct {
-	userService entities.UserServiceInterface
+	userService domain.UserService
+	jwtCfg      *configs.JWTConfig
 }
 
-func NewUserHandler(userService entities.UserServiceInterface) *UserHandler {
+func NewUserHandler(userService domain.UserService, jwtCfg *configs.JWTConfig) *UserHandler {
 	return &UserHandler{
 		userService: userService,
+		jwtCfg:      jwtCfg,
 	}
 }
 
-func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
-	var req user_resp.RegisterUserRequest
+func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req user_dto.RegisterUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteErrorResponse(w, http.StatusBadRequest, exceptions.ErrInvalidRequest)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request payload format")
 		return
 	}
 
-	accessToken, refreshToken, err := h.userService.RegisterUser(req.Name, req.Password, req.Email);
-	if  err != nil {
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, exceptions.FormatErrorMessage(exceptions.ErrFailedToCreateTemplate, "user"))
+	if err := utils.ValidateStruct(&req); err != nil {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rep := user_resp.RegisterUserResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+
+	tokens, err := h.userService.Register(r.Context(), req.Name, req.Email, req.Password)
+	if err != nil {
+		h.handleError(w, err)
+		return
 	}
-	utils.WriteSuccessResponse(w, http.StatusCreated, "User registered successfully", rep)
+
+	utils.SetAuthCookies(w, tokens.AccessToken, tokens.RefreshToken, h.jwtCfg)
+
+	resp := user_dto.AuthResponse{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+	}
+	utils.WriteSuccessResponse(w, http.StatusCreated, "User registered successfully", resp)
 }
 
-func (h *UserHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
-	var req user_resp.LoginUserRequest
+func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req user_dto.LoginUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteErrorResponse(w, http.StatusBadRequest, exceptions.ErrInvalidRequest)
+		utils.WriteErrorResponse(w, http.StatusBadRequest, "Invalid request payload format")
 		return
 	}
 
-	accessToken, refreshToken, err := h.userService.LoginUser(req.Email, req.Password);
-	if  err != nil {
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, exceptions_auth.IncorrectEmailOrPassword)
+	if err := utils.ValidateStruct(&req); err != nil {
+		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	utils.SetAuthCookies(w, accessToken, refreshToken)
 
-	rep := user_resp.LoginUserResponse{}
-	utils.WriteSuccessResponse(w, http.StatusOK, "User logged in successfully", rep)
+	tokens, err := h.userService.Login(r.Context(), req.Email, req.Password)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	utils.SetAuthCookies(w, tokens.AccessToken, tokens.RefreshToken, h.jwtCfg)
+
+	resp := user_dto.AuthResponse{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+	}
+	utils.WriteSuccessResponse(w, http.StatusOK, "User logged in successfully", resp)
 }
 
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(middlewares.UserClaimsContextKey).(*jwt.UserClaims)
-	if !ok {
-		utils.WriteErrorResponse(w, http.StatusUnauthorized, exceptions_auth.ErrInvalidAuthToken)
+	if !ok || claims == nil {
+		utils.WriteErrorResponse(w, http.StatusUnauthorized, domain.ErrInvalidToken.Error())
 		return
 	}
 
-	user, err := h.userService.GetMe(claims.UserID)
+	user, err := h.userService.GetMe(r.Context(), claims.UserID)
 	if err != nil {
-		utils.WriteErrorResponse(
-			w,
-			http.StatusInternalServerError,
-			exceptions.FormatErrorMessage(exceptions.ErrNotFoundTemplate, "user"),
-		)
+		h.handleError(w, err)
 		return
 	}
 
-	resp := user_resp.GetMeResponse{
-		Name:  user.Name,
-		Email: user.Email,
+	resp := user_dto.UserResponse{
+		ID:        user.ID,
+		Email:     user.Email,
+		Name:      user.Name,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
 	}
-	utils.WriteSuccessResponse(w, http.StatusOK, "User fetched successfully", resp)
+	utils.WriteSuccessResponse(w, http.StatusOK, "User profile retrieved successfully", resp)
 }
 
 func (h *UserHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(middlewares.UserClaimsContextKey).(*jwt.UserClaims)
-	if !ok {
-		utils.WriteErrorResponse(w, http.StatusUnauthorized, exceptions_auth.ErrInvalidAuthToken)
+	if !ok || claims == nil {
+		utils.WriteErrorResponse(w, http.StatusUnauthorized, domain.ErrInvalidToken.Error())
 		return
 	}
-	access_token, refresh_token, err := h.userService.RefreshToken(claims.UserID)
-	if err != nil {
-		utils.WriteErrorResponse(w, http.StatusInternalServerError, exceptions.FormatErrorMessage(exceptions.ErrFailedToCreateTemplate, "token"))
-		return
-	}
-	utils.SetAuthCookies(w, access_token, refresh_token)
 
-	utils.WriteSuccessResponse(w, http.StatusOK, "Token refreshed successfully", nil)
+	tokens, err := h.userService.RefreshToken(r.Context(), claims.UserID)
+	if err != nil {
+		h.handleError(w, err)
+		return
+	}
+
+	utils.SetAuthCookies(w, tokens.AccessToken, tokens.RefreshToken, h.jwtCfg)
+
+	resp := user_dto.AuthResponse{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+	}
+	utils.WriteSuccessResponse(w, http.StatusOK, "Token refreshed successfully", resp)
+}
+
+func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	utils.ClearAuthCookies(w, h.jwtCfg)
+	utils.WriteSuccessResponse(w, http.StatusOK, "Logged out successfully", nil)
+}
+
+func (h *UserHandler) handleError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrInvalidCredentials):
+		utils.WriteErrorResponse(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, domain.ErrUserAlreadyExists):
+		utils.WriteErrorResponse(w, http.StatusConflict, err.Error())
+	case errors.Is(err, domain.ErrUserNotFound):
+		utils.WriteErrorResponse(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, domain.ErrInvalidToken), errors.Is(err, domain.ErrTokenExpired):
+		utils.WriteErrorResponse(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, domain.ErrBadRequest), errors.Is(err, domain.ErrValidationFailed):
+		utils.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+	default:
+		utils.WriteErrorResponse(w, http.StatusInternalServerError, "An unexpected error occurred. Please try again later.")
+	}
 }

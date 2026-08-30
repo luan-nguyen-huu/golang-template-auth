@@ -1,40 +1,31 @@
 package v1
 
 import (
-	"github.com/luan-nguyen-huu/Adam/internal/entities"
+	"github.com/go-chi/chi/v5"
 	"github.com/luan-nguyen-huu/Adam/internal/handlers"
 	"github.com/luan-nguyen-huu/Adam/internal/middlewares"
 	"github.com/luan-nguyen-huu/Adam/internal/utils/jwt"
-
-	"github.com/go-chi/chi/v5"
 )
 
 type UserRouter struct {
-	UserService entities.UserServiceInterface
-	TokenMaker  jwt.JWTMakerInterface
+	userHandler *handlers.UserHandler
+	tokenMaker  jwt.JWTMakerInterface
 }
 
-func NewUserRouter(
-	userService entities.UserServiceInterface,
-	tokenMaker jwt.JWTMakerInterface,
-) *UserRouter {
+func NewUserRouter(userHandler *handlers.UserHandler, tokenMaker jwt.JWTMakerInterface) *UserRouter {
 	return &UserRouter{
-		UserService: userService,
-		TokenMaker:  tokenMaker,
+		userHandler: userHandler,
+		tokenMaker:  tokenMaker,
 	}
 }
 
-func (ur *UserRouter) RegisterUserRoutes(r chi.Router) {
-	userHandler := handlers.NewUserHandler(ur.UserService)
+func (ur *UserRouter) RegisterRoutes(r chi.Router) {
+	// Public routes
+	r.Post("/register", ur.userHandler.Register)
+	r.Post("/login", ur.userHandler.Login)
+	r.Post("/logout", ur.userHandler.Logout)
 
-	r.Post("/register", userHandler.RegisterUser)
-	r.Post("/login", userHandler.LoginUser)
-
-	r.With(
-		middlewares.AuthMiddlewareByCookie(ur.TokenMaker),
-	).Get("/me", userHandler.GetMe)
-
-	r.With(
-		middlewares.RefreshTokenMiddleware(ur.TokenMaker),
-	).Post("/refresh", userHandler.RefreshToken)
+	// Protected routes
+	r.With(middlewares.AuthMiddleware(ur.tokenMaker)).Get("/me", ur.userHandler.GetMe)
+	r.With(middlewares.RefreshTokenMiddleware(ur.tokenMaker)).Post("/refresh", ur.userHandler.RefreshToken)
 }

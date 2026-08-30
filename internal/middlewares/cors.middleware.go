@@ -6,16 +6,20 @@ import (
 	"github.com/go-chi/cors"
 )
 
-func CorsMiddleware() func(http.Handler) http.Handler {
+func CorsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = []string{"http://localhost:3000", "http://localhost:8080"}
+	}
+
 	corsOptions := cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}
-	
+
 	corsMiddleware := cors.New(corsOptions)
 	return corsMiddleware.Handler
 }

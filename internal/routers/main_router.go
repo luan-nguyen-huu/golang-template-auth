@@ -5,40 +5,35 @@ import (
 	"net/http"
 	"time"
 
-	sub "github.com/luan-nguyen-huu/Adam/internal/initialize/sub"
-	"github.com/luan-nguyen-huu/Adam/internal/initialize"
-	"github.com/luan-nguyen-huu/Adam/internal/middlewares"
-	v1 "github.com/luan-nguyen-huu/Adam/internal/routers/v1"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/luan-nguyen-huu/Adam/configs"
+	"github.com/luan-nguyen-huu/Adam/internal/middlewares"
+	v1 "github.com/luan-nguyen-huu/Adam/internal/routers/v1"
 )
 
-func RegisterMainRoutes(cfg *configs.Config) http.Handler {
+func NewMainRouter(cfg *configs.Config, v1Router *v1.V1Router) http.Handler {
 	r := chi.NewRouter()
 
+	// Global Middlewares
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(middlewares.CorsMiddleware(cfg.CORS.GetAllowedOrigins()))
 
-	r.Use(middlewares.CorsMiddleware())
-
+	// Health Check / Root info
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf("Hello from %s (%s)", cfg.App.Name, cfg.App.Env)))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"service":"%s","env":"%s","status":"healthy"}`, cfg.App.Name, cfg.App.Env)))
 	})
 
-	db, err := initialize.InitDatabase()
-	if err != nil {
-		panic(err)
-	}
-
-	services := sub.InitServices(db, cfg)
-
-	v1Router := v1.NewV1Router(services)
-
+	// API V1 Routes
 	r.Route("/api/v1", func(r chi.Router) {
-		v1Router.RegisterV1Routes(r)
+		v1Router.RegisterRoutes(r)
 	})
 
 	return r

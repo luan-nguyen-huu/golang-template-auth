@@ -1,87 +1,122 @@
 package services
 
 import (
-	"github.com/google/uuid"
+	"context"
+	"errors"
 
-	"github.com/luan-nguyen-huu/Adam/internal/entities"
+	"github.com/google/uuid"
+	"github.com/luan-nguyen-huu/Adam/internal/domain"
 	"github.com/luan-nguyen-huu/Adam/internal/utils"
 	"github.com/luan-nguyen-huu/Adam/internal/utils/jwt"
 )
 
 type UserService struct {
-	userRepo entities.UserRepositoryInterface
+	userRepo domain.UserRepository
 	jwtMaker jwt.JWTMakerInterface
+	hashCost int
 }
 
-func NewUserService(userRepo entities.UserRepositoryInterface, jwtMaker jwt.JWTMakerInterface) *UserService {
+func NewUserService(userRepo domain.UserRepository, jwtMaker jwt.JWTMakerInterface, hashCost int) domain.UserService {
 	return &UserService{
 		userRepo: userRepo,
 		jwtMaker: jwtMaker,
+		hashCost: hashCost,
 	}
 }
 
-func (s *UserService) RegisterUser(username string, password string, email string) (string, string, error) {
-	hashedPassword, err := utils.HashPassword(password)
+func (s *UserService) Register(ctx context.Context, name, email, password string) (*domain.AuthTokens, error) {
+	// Check if user already exists
+	existingUser, err := s.userRepo.GetByEmail(ctx, email)
+	if err == nil && existingUser != nil {
+		return nil, domain.ErrUserAlreadyExists
+	}
+	if err != nil && !errors.Is(err, domain.ErrUserNotFound) {
+		return nil, err
+	}
+
+	hashedPassword, err := utils.HashPassword(password, s.hashCost)
 	if err != nil {
-		return "","", err
+		return nil, err
 	}
-	user := &entities.User{
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Name:         username,
+
+	user := &domain.User{
+		Email:    email,
+		Password: hashedPassword,
+		Name:     name,
 	}
-	if err := s.userRepo.CreateUser(user); err != nil {
-		return "", "", err
+
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		return nil, err
 	}
 
 	accessToken, err := s.jwtMaker.GenerateAccessToken(user.ID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	refreshToken, err := s.jwtMaker.GenerateRefreshToken(user.ID)
 	if err != nil {
-		return "", "",  err
+		return nil, err
 	}
 
-	return accessToken, refreshToken, nil
+	return &domain.AuthTokens{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
-func (s *UserService) LoginUser(email string, password string) (string, string, error) {
-	var user, err = s.userRepo.GetUserByEmail(email)
+func (s *UserService) Login(ctx context.Context, email, password string) (*domain.AuthTokens, error) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
-		return "", "", err
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return nil, domain.ErrInvalidCredentials
+		}
+		return nil, err
 	}
 
-	if err := utils.CheckPasswordHash(password, user.PasswordHash); err != nil {
-		return "", "", err
+	if err := utils.CheckPasswordHash(password, user.Password); err != nil {
+		return nil, domain.ErrInvalidCredentials
 	}
 
 	accessToken, err := s.jwtMaker.GenerateAccessToken(user.ID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	refreshToken, err := s.jwtMaker.GenerateRefreshToken(user.ID)
 	if err != nil {
-		return "", "",  err
+		return nil, err
 	}
 
-	return accessToken, refreshToken, nil
+	return &domain.AuthTokens{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
-func (s *UserService) GetMe(userID uuid.UUID) (*entities.User, error) {
-	return s.userRepo.GetUserByID(userID)
+func (s *UserService) GetMe(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
+	return s.userRepo.GetByID(ctx, userID)
 }
 
-func (s *UserService) RefreshToken(userID uuid.UUID) (string, string, error) {
+func (s *UserService) RefreshToken(ctx context.Context, userID uuid.UUID) (*domain.AuthTokens, error) {
+	// Verify that user still exists in database
+	_, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	accessToken, err := s.jwtMaker.GenerateAccessToken(userID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
+
 	refreshToken, err := s.jwtMaker.GenerateRefreshToken(userID)
 	if err != nil {
-		return "", "",  err
+		return nil, err
 	}
-	return accessToken, refreshToken, nil
+
+	return &domain.AuthTokens{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }

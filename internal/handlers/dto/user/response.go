@@ -1,14 +1,20 @@
 package user
 
-type RegisterUserResponse struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type AuthResponse struct {
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
-type LoginUserResponse struct {
-}
-
-type GetMeResponse struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
+type UserResponse struct {
+	ID        uuid.UUID `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

@@ -1,18 +1,14 @@
 package jwt
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/luan-nguyen-huu/Adam/internal/domain"
 )
-
-type JWTMaker struct {
-	secretKey_access string
-	secretKey_refresh string
-	TLL_access time.Duration
-	TLL_refresh time.Duration
-}
 
 type JWTMakerInterface interface {
 	GenerateAccessToken(userID uuid.UUID) (string, error)
@@ -21,70 +17,71 @@ type JWTMakerInterface interface {
 	VerifyRefreshToken(tokenStr string) (*UserClaims, error)
 }
 
-func NewJWTMaker(secretKey_access string, secretKey_refresh string, TLL_access time.Duration, TLL_refresh time.Duration) *JWTMaker {
+type JWTMaker struct {
+	accessSecret  string
+	refreshSecret string
+	accessTTL     time.Duration
+	refreshTTL    time.Duration
+}
+
+func NewJWTMaker(accessSecret, refreshSecret string, accessTTL, refreshTTL time.Duration) *JWTMaker {
 	return &JWTMaker{
-		secretKey_access: secretKey_access,
-		secretKey_refresh: secretKey_refresh,
-		TLL_access: TLL_access,
-		TLL_refresh: TLL_refresh,
+		accessSecret:  accessSecret,
+		refreshSecret: refreshSecret,
+		accessTTL:     accessTTL,
+		refreshTTL:    refreshTTL,
 	}
 }
 
 func (maker *JWTMaker) GenerateAccessToken(userID uuid.UUID) (string, error) {
-	claims, err := NewUserClaims(userID, maker.TLL_access)
+	claims, err := NewUserClaims(userID, maker.accessTTL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create access token claims: %w", err)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(maker.secretKey_access))
+	return token.SignedString([]byte(maker.accessSecret))
 }
 
 func (maker *JWTMaker) GenerateRefreshToken(userID uuid.UUID) (string, error) {
-	claims, err := NewUserClaims(userID, maker.TLL_refresh)
+	claims, err := NewUserClaims(userID, maker.refreshTTL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create refresh token claims: %w", err)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(maker.secretKey_refresh))
+	return token.SignedString([]byte(maker.refreshSecret))
 }
 
 func (maker *JWTMaker) VerifyAccessToken(tokenStr string) (*UserClaims, error) {
-	token, err := jwt.ParseWithClaims(
-		tokenStr,
-		&UserClaims{},
-		func(token *jwt.Token) (interface{}, error) {
-			return []byte(maker.secretKey_access), nil
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	claims, ok := token.Claims.(*UserClaims)
-	if !ok {
-		return nil, jwt.ErrInvalidKeyType
-	}
-
-	return claims, nil
+	return maker.verifyToken(tokenStr, maker.accessSecret)
 }
 
-func (maker *JWTMaker) VerifyRefreshToken(tokenStr string) (*UserClaims, error)	 {
+func (maker *JWTMaker) VerifyRefreshToken(tokenStr string) (*UserClaims, error) {
+	return maker.verifyToken(tokenStr, maker.refreshSecret)
+}
+
+func (maker *JWTMaker) verifyToken(tokenStr, secret string) (*UserClaims, error) {
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
 		&UserClaims{},
 		func(token *jwt.Token) (interface{}, error) {
-			return []byte(maker.secretKey_refresh), nil
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, domain.ErrInvalidToken
+			}
+			return []byte(secret), nil
 		},
 	)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, domain.ErrTokenExpired
+		}
+		return nil, domain.ErrInvalidToken
 	}
 
 	claims, ok := token.Claims.(*UserClaims)
-	if !ok {
-		return nil, jwt.ErrInvalidKeyType
+	if !ok || !token.Valid {
+		return nil, domain.ErrInvalidToken
 	}
 
 	return claims, nil
